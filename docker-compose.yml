@@ -1,9 +1,23 @@
 version: '3'
 services:
+  postgres-server:
+    image: postgres:16.3-alpine
+    container_name: chatgpt-postgres
+    environment:
+      - POSTGRES_USER=spd
+      - POSTGRES_PASSWORD=porter
+      - PGDATA=/pgdata
+      - POSTGRES_DB=chatgptui
+    ports:
+      - 5432:5432
+    volumes:
+      - proxy-postgres-data:/pgdata
+    networks:
+      - chatgpt
+    restart: always
+
   wsgi-server:
-    build:
-      context: .
-      target: wsgi-server
+    image: spdata/chatgpt-wsgi-server:v240812
     environment:
       APP_DOMAIN: localhost:9000
       WORKER_TIMEOUT: 180
@@ -11,14 +25,20 @@ services:
       DJANGO_SUPERUSER_PASSWORD: password # default superuser password
       DJANGO_SUPERUSER_EMAIL: admin@example.com # default superuser email
       ACCOUNT_EMAIL_VERIFICATION: ${ACCOUNT_EMAIL_VERIFICATION:-none} # Determines the e-mail verification method during signup – choose one of "none", "optional", or "mandatory". Default is "optional". If you don't need to verify the email, you can set it to "none".
-      DB_URL: ${DB_URL:-sqlite:///db.sqlite3}
+      DB_URL: postgres://spd:porter@postgres-server/chatgptui
+      DEBUG: 'True'
+    entrypoint:
+      - tail
+      - -f
+      - /etc/hosts
     ports:
       - '8000:8000'
+    depends_on:
+      - postgres-server
     networks:
-        - chatgpt-ui_network
+        - chatgpt
   web-server:
-    build:
-      context: .
+    image: spdata/chatgpt-web-server:v240812
     environment:
       - BACKEND_URL=http://wsgi-server:8000
     ports:
@@ -26,8 +46,10 @@ services:
     depends_on:
       - wsgi-server
     networks:
-      - chatgpt-ui_network
+      - chatgpt
+
+volumes:
+  proxy-postgres-data:
 
 networks:
-  chatgpt-ui_network:
-    driver: bridge
+  chatgpt:

@@ -12,7 +12,7 @@ import faiss
 import hashlib
 
 import openai
-from langchain.document_loaders import (
+from langchain_community.document_loaders import (
     TextLoader,
     PyPDFLoader,
     Docx2txtLoader,
@@ -20,11 +20,11 @@ from langchain.document_loaders import (
 )
 
 from langchain.text_splitter import RecursiveCharacterTextSplitter  # generic
-from langchain.embeddings.openai import OpenAIEmbeddings
-from langchain.vectorstores import FAISS
+from langchain_openai.embeddings.azure import AzureOpenAIEmbeddings
+from langchain_community.vectorstores import FAISS
 from langchain.prompts.prompt import PromptTemplate
 
-from langchain.chat_models import ChatOpenAI
+from langchain_community.chat_models import AzureChatOpenAI
 from langchain.schema import (
     AIMessage,
     HumanMessage,
@@ -39,7 +39,7 @@ from langchain.chains import (
 from langchain.chains.question_answering import load_qa_chain
 from langchain.chains.conversational_retrieval.prompts import CONDENSE_QUESTION_PROMPT
 from langchain.memory import ConversationBufferWindowMemory
-from langchain.callbacks import get_openai_callback
+from langchain_community.callbacks import get_openai_callback
 from langchain.callbacks.streaming_stdout import StreamingStdOutCallbackHandler
 from langchain.callbacks.base import (
     BaseCallbackHandler,
@@ -59,12 +59,12 @@ embedding_model = {
 }
 
 openai_env = {
-    'api_key': None,
-    'api_base': None,
+    'base_url': 'https://openai-aicoe-dev.openai.azure.com/',
+    'api_key': 'f6966caaad944e9fb788eece142cd26e',
 }
 
 openai_model = {
-    'name': 'gpt-3.5-turbo',
+    'name': 'azure-gpt-4o',
     'max_tokens': 4096,
     'max_prompt_tokens': 3096,
     'max_response_tokens': 1000
@@ -72,21 +72,18 @@ openai_model = {
 
 _queue = queue.Queue()
 
-def setup_openai_env(api_base=None, api_key=None):
-    if not openai_env['api_base']:
-        openai_env['api_base'] = api_base
+def setup_openai_env(base_url=None, api_key=None):
+    if not openai_env['base_url']:
+        openai_env['base_url'] = base_url
     if not openai_env['api_key']:
         openai_env['api_key'] = api_key
-    openai.api_base = openai_env['api_base']
-    openai.api_key = openai_env['api_key']
-    openai.api_version = None
-    return (openai_env['api_base'], openai_env['api_key'])
+    return (openai_env['base_url'], openai_env['api_key'])
 
 
-def setup_openai_model(model):
-    logger.debug(model)
-    openai_model.update(model)
-    logger.debug(model)
+def setup_openai_model(model, base_url=None, api_key=None):
+    model['base_url'] = base_url
+    model['api_key'] = api_key
+    return model
 
 
 # class OutputStreamingCallbackHandler(AsyncCallbackHandler):
@@ -136,7 +133,7 @@ class EmbeddingModel:
         if not self._function:
             setup_openai_env()
             self.name = 'openai'
-            self._function = OpenAIEmbeddings(openai_api_key=os.getenv('OPENAI_API_KEY'))
+            self._function = AzureOpenAIEmbeddings(openai_api_key=os.getenv('OPENAI_API_KEY'))
         return self._function
 
 
@@ -148,18 +145,29 @@ class ChatModel:
     @property
     def model(self):
         if not self._model:
-            api_base, api_key = setup_openai_env()
+            base_url, api_key = setup_openai_env()
             self.name = 'open_ai'
             max_response_tokens = openai_model['max_prompt_tokens']
             if max_response_tokens > 1024:
                 max_response_tokens = 1024
-            self._model = ChatOpenAI(
-                api_key=api_key,
-                api_base=api_base,
-                model_name=openai_model['name'],
+
+            # self._model = ChatOpenAI(
+            #     api_key=api_key,
+            #     api_base=api_base,
+            #     model_name=openai_model['name'],
+            #     max_tokens=max_response_tokens,
+            #     streaming=True,
+            #     # callbacks=[OSC],
+            # )
+
+            self._model = AzureChatOpenAI(
+                openai_api_key=api_key,
+                openai_api_base=base_url,
+                model=openai_model['name'],
+                azure_deployment="azure-gpt-4o",
+                openai_api_version="2024-07-18",
                 max_tokens=max_response_tokens,
                 streaming=True,
-                # callbacks=[OSC],
             )
         return self._model
 

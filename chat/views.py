@@ -6,7 +6,7 @@ from hashlib import sha256
 import tempfile
 import base64
 import uuid
-import openai
+from openai import AzureOpenAI
 import time
 import datetime
 import tiktoken
@@ -28,8 +28,8 @@ from utils.search_prompt import compile_prompt
 from utils.duckduckgo_search import web_search, SearchRequest
 from .tools import TOOL_LIST
 from .llm import get_embedding_document, unpick_faiss, langchain_doc_chat
-from .llm import setup_openai_env as llm_openai_env
-from .llm import setup_openai_model as llm_openai_model
+from .llm import setup_openai_env
+from .llm import setup_openai_model
 
 
 logger = logging.getLogger(__name__)
@@ -147,7 +147,7 @@ class EmbeddingDocumentViewSet(viewsets.ModelViewSet):
                 )
 
         my_openai = get_openai(openai_api_key)
-        llm_openai_env(my_openai.api_base, my_openai.api_key)
+        llm_openai_env(my_openai.base_url, my_openai.api_key)
 
         # Get the uploaded file from the request
         file_data = self.request.data.get('file')
@@ -201,42 +201,13 @@ class EmbeddingDocumentViewSet(viewsets.ModelViewSet):
 
 
 MODELS = {
-    'gpt-3.5-turbo': {
-        'name': 'gpt-3.5-turbo',
-        'max_tokens': 4096,
-        'max_prompt_tokens': 3096,
-        'max_response_tokens': 1000
-    },
-    'gpt-4': {
-        'name': 'gpt-4',
-        'max_tokens': 8192,
-        'max_prompt_tokens': 6192,
-        'max_response_tokens': 2000
-    },
-    'gpt-3.5-turbo-16k': {
-        'name': 'gpt-3.5-turbo-16k',
-        'max_tokens': 16384,
-        'max_prompt_tokens': 12384,
-        'max_response_tokens': 4000
-    },
-    'gpt-4-32k': {
-        'name': 'gpt-4-32k',
-        'max_tokens': 32768,
-        'max_prompt_tokens': 24768,
-        'max_response_tokens': 8000
-    },
-    'gpt-4-1106-preview': {
-        'name': 'gpt-4-1106-preview',
+    'azure-gpt-4o': {
+        'name': 'azure-gpt-4o',
         'max_tokens': 131072,
         'max_prompt_tokens': 123072,
         'max_response_tokens': 8000,
-    },
-    'gpt-4o': {
-        'name': 'gpt-4o',
-        'max_tokens': 131072,
-        'max_prompt_tokens': 123072,
-        'max_response_tokens': 8000,
-    }    
+        'api_version': '2024-06-01',
+    }
 }
 
 
@@ -281,10 +252,20 @@ def gen_title(request):
         {"role": "user", "content": prompt + message.message},
     ]
 
-    my_openai = get_openai(openai_api_key)
+
+    base_url, openai_api_key = setup_openai_env(api_key=api_key)
+    model = get_current_model('azure-gpt-4o', None)
+    model = setup_openai_model(model, base_url=base_url, api_key=openai_api_key)
+
+    client = AzureOpenAI(
+        api_key=model['api_key'],
+        api_version=model['api_version'],
+        azure_endpoint=model['base_url'],
+    )
+
     try:
-        openai_response = my_openai.ChatCompletion.create(
-            model='gpt-3.5-turbo-0301',
+        openai_response = client.chat.completions.create(
+            model=model['name'],
             messages=messages,
             max_tokens=256,
             temperature=0.5,
@@ -292,11 +273,11 @@ def gen_title(request):
             frequency_penalty=0,
             presence_penalty=0,
         )
-        completion_text = openai_response['choices'][0]['message']['content']
+        completion_text = openai_response.choices[0].message.content
         title = completion_text.strip().replace('"', '')
 
         # increment the token count
-        increase_token_usage(request.user, openai_response['usage']['total_tokens'], api_key)
+        increase_token_usage(request.user, openai_response.usage.total_tokens, api_key)
     except Exception as e:
         print(e)
         title = 'Untitled Conversation'
@@ -368,7 +349,7 @@ def upload_conversations(request):
             {'error': import_err_msg},
             status=status.HTTP_400_BAD_REQUEST
         )
-    
+
     # return a list of new conversation id
     return Response(conversation_ids)
 
@@ -403,28 +384,11 @@ def conversation(request):
 
     logger.debug('conversation_id = %s message_objects = %s', conversation_id, message_object_list)
 
-    api_key = None
-
-    if openai_api_key is None:
-        openai_api_key = get_api_key_from_setting()
-
-    if openai_api_key is None:
-        api_key = get_api_key()
-        if api_key:
-            openai_api_key = api_key.key
-        else:
-            return Response(
-                {
-                    'error': 'There is no available API key'
-                },
-                status=status.HTTP_400_BAD_REQUEST
-            )
-
-    my_openai = get_openai(openai_api_key)
-    llm_openai_env(my_openai.api_base, my_openai.api_key)
+    api_key = get_api_key()
+    base_url, openai_api_key = setup_openai_env(api_key=api_key)
 
     model = get_current_model(model_name, request_max_response_tokens)
-    llm_openai_model(model)
+    model = setup_openai_model(model, base_url=base_url, api_key=openai_api_key)
 
     try:
         messages = build_messages(model, request.user, conversation_id, message_object_list, web_search_params, system_content, frugal_mode, tool, message_type)
@@ -443,9 +407,14 @@ def conversation(request):
         )
 
     def stream_content():
+        client = AzureOpenAI(
+            api_key=model['api_key'],
+			api_version=model['api_version'],
+			azure_endpoint=model['base_url'],
+		)
         try:
             if messages['renew']:
-                openai_response = my_openai.ChatCompletion.create(
+                openai_response = client.chat.completions.create(
                     model=model['name'],
                     messages=messages['messages'],
                     max_tokens=model['max_response_tokens'],
@@ -492,7 +461,7 @@ def conversation(request):
                     'error': e
                 },
                 status=status.HTTP_400_BAD_REQUEST
-            ) 
+            )
 
         collected_events = []
         completion_text = ''
@@ -501,12 +470,19 @@ def conversation(request):
             for event in openai_response:
                 collected_events.append(event)  # save the event response
                 # print(event)
-                if event['choices'][0]['finish_reason'] is not None:
+                if not event.choices:
+                    continue
+                if event.choices[0].finish_reason is not None:
                     break
-                if 'content' in event['choices'][0]['delta']:
-                    event_text = event['choices'][0]['delta']['content']
+                if event.choices[0].delta.content:
+                    event_text = event.choices[0].delta.content
                     completion_text += event_text  # append the text
                     yield sse_pack('message', {'content': event_text})
+
+            # test adding embedded html
+            event_text = '\n\n[Link](https://google.com)'
+            yield sse_pack('message', {'content': event_text})
+
             bot_message_type = Message.plain_message_type
             ai_message_token = num_tokens_from_text(completion_text, model['name'])
         else:  # wait for process context
@@ -666,7 +642,7 @@ def build_messages(model, user, conversation_id, new_messages, web_search_params
 
     ordered_messages_list += [{
         'is_bot': False,
-        'message': msg['content'], 
+        'message': msg['content'],
         'message_type': message_type,
         'embedding_message_doc': msg.get('embedding_message_doc', None),
     } for msg in new_messages]
@@ -785,7 +761,7 @@ def build_messages(model, user, conversation_id, new_messages, web_search_params
 
 def get_current_model(model_name, request_max_response_tokens):
     if model_name is None:
-        model_name ="gpt-3.5-turbo"
+        model_name ="azure-gpt-4o"
     model = MODELS[model_name]
     if request_max_response_tokens is not None:
         model['max_response_tokens'] = int(request_max_response_tokens)
@@ -804,27 +780,15 @@ def get_api_key():
     return ApiKey.objects.filter(is_enabled=True).order_by('token_used').first()
 
 
-def num_tokens_from_text(text, model="gpt-3.5-turbo-0301"):
+def num_tokens_from_text(text, model="azure-gpt-4o"):
     try:
         encoding = tiktoken.encoding_for_model(model)
     except KeyError:
         print("Warning: model not found. Using cl100k_base encoding.")
         encoding = tiktoken.get_encoding("cl100k_base")
 
-    if model in ["gpt-3.5-turbo", "gpt-3.5-turbo-16k", "gpt-4", "gpt-4-32k"]:
-        print(
-            f"Warning: {model} may change over time.",
-            f"Returning num tokens assuming {model}-0613."
-        )
-        return num_tokens_from_text(text, model=f"{model}-0613")
-
     if model not in [
-        "gpt-3.5-turbo-0613",
-        "gpt-4-0613",
-        "gpt-3.5-turbo-16k-0613",
-        "gpt-4-32k-0613",
-        "gpt-4-1106-preview",
-        "gpt-4o"
+        "azure-gpt-4o"
     ]:
         raise NotImplementedError(
             f"num_tokens_from_text() is not implemented for model {model}.")
@@ -840,25 +804,11 @@ def num_tokens_from_messages(messages, model="gpt-3.5-turbo-0301"):
         print("Warning: model not found. Using cl100k_base encoding.")
         encoding = tiktoken.get_encoding("cl100k_base")
 
-    if model in ["gpt-3.5-turbo", "gpt-3.5-turbo-16k", "gpt-4", "gpt-4-32k"]:
-        print(
-            f"Warning: {model} may change over time.",
-            f"Returning num tokens assuming {model}-0613."
-        )
-        return num_tokens_from_messages(messages, model=f"{model}-0613")
-
     if model in [
-        "gpt-3.5-turbo-0613",
-        "gpt-3.5-turbo-16k-0613",
-        "gpt-4-32k-0613",
-        "gpt-4-1106-preview",
-        "gpt-4o"
+        "azure-gpt-4o"
     ]:
         tokens_per_message = 4  # every message follows <|start|>{role/name}\n{content}<|end|>\n
         tokens_per_name = -1    # if there's a name, the role is omitted
-    elif model in ["gpt-4-0613"]:
-        tokens_per_message = 3
-        tokens_per_name = 1
     else:
         raise NotImplementedError((
             f"num_tokens_from_messages() is not implemented for model {model}. "
@@ -881,5 +831,5 @@ def get_openai(openai_api_key):
     openai.api_key = openai_api_key
     proxy = os.getenv('OPENAI_API_PROXY')
     if proxy:
-        openai.api_base = proxy
+        openai.base_url = proxy
     return openai
