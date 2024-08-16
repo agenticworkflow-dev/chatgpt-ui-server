@@ -128,27 +128,6 @@ class EmbeddingDocumentViewSet(viewsets.ModelViewSet):
     def get_embedding(self):
         """get the faiss_store of uploaded file"""
 
-        openai_api_key = self.request.data.get('openaiApiKey', None)
-        api_key = None
-
-        if openai_api_key is None:
-            openai_api_key = get_api_key_from_setting()
-
-        if openai_api_key is None:
-            api_key = get_api_key()
-            if api_key:
-                openai_api_key = api_key.key
-            else:
-                return Response(
-                    {
-                        'error': 'There is no available API key'
-                    },
-                    status=status.HTTP_400_BAD_REQUEST
-                )
-
-        my_openai = get_openai(openai_api_key)
-        llm_openai_env(my_openai.base_url, my_openai.api_key)
-
         # Get the uploaded file from the request
         file_data = self.request.data.get('file')
         file_mime, file_url = file_data.split(',')
@@ -257,11 +236,7 @@ def gen_title(request):
     model = get_current_model('azure-gpt-4o', None)
     model = setup_openai_model(model, base_url=base_url, api_key=openai_api_key)
 
-    client = AzureOpenAI(
-        api_key=model['api_key'],
-        api_version=model['api_version'],
-        azure_endpoint=model['base_url'],
-    )
+    client = AzureOpenAI()
 
     try:
         openai_response = client.chat.completions.create(
@@ -407,11 +382,7 @@ def conversation(request):
         )
 
     def stream_content():
-        client = AzureOpenAI(
-            api_key=model['api_key'],
-			api_version=model['api_version'],
-			azure_endpoint=model['base_url'],
-		)
+        client = AzureOpenAI()
         try:
             if messages['renew']:
                 openai_response = client.chat.completions.create(
@@ -796,10 +767,11 @@ def num_tokens_from_text(text, model="azure-gpt-4o"):
     return len(encoding.encode(text))
 
 
-def num_tokens_from_messages(messages, model="gpt-3.5-turbo-0301"):
+def num_tokens_from_messages(messages, model="azure-gpt-4o"):
     """Returns the number of tokens used by a list of messages."""
     try:
-        encoding = tiktoken.encoding_for_model(model)
+        # encoding = tiktoken.encoding_for_model(model)
+        encoding = tiktoken.get_encoding("cl100k_base")
     except KeyError:
         print("Warning: model not found. Using cl100k_base encoding.")
         encoding = tiktoken.get_encoding("cl100k_base")

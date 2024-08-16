@@ -17,7 +17,8 @@ services:
     restart: always
 
   wsgi-server:
-    image: spdata/chatgpt-wsgi-server:v240812
+    env_file: .env
+    image: spdata/chatgpt-wsgi-server:v240812-2
     environment:
       APP_DOMAIN: localhost:9000
       WORKER_TIMEOUT: 180
@@ -27,10 +28,6 @@ services:
       ACCOUNT_EMAIL_VERIFICATION: ${ACCOUNT_EMAIL_VERIFICATION:-none} # Determines the e-mail verification method during signup – choose one of "none", "optional", or "mandatory". Default is "optional". If you don't need to verify the email, you can set it to "none".
       DB_URL: postgres://spd:porter@postgres-server/chatgptui
       DEBUG: 'True'
-    entrypoint:
-      - tail
-      - -f
-      - /etc/hosts
     ports:
       - '8000:8000'
     depends_on:

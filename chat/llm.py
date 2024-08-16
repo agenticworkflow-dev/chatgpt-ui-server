@@ -133,7 +133,11 @@ class EmbeddingModel:
         if not self._function:
             setup_openai_env()
             self.name = 'openai'
-            self._function = AzureOpenAIEmbeddings(openai_api_key=os.getenv('OPENAI_API_KEY'))
+            self._function = AzureOpenAIEmbeddings(
+                api_key=os.getenv('AZURE_OPENAI_API_KEY'),
+                azure_endpoint=os.getenv('AZURE_OPENAI_ENDPOINT'),
+                openai_api_version=os.getenv('AZURE_OPENAI_API_VERSION')
+            )
         return self._function
 
 
@@ -202,7 +206,7 @@ def get_embedding_document(file, mime):
     loader = loaders[mime](file)
     docs = loader.load()
 
-    embeddings_function = embedding_model.function
+    embeddings_function = embedding_model
 
     for doc in docs:
         hash_str = str(hashlib.md5(str(doc).encode()).hexdigest())

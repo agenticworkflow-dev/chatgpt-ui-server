@@ -1,5 +1,5 @@
 WSGI_REPO := spdata/chatgpt-wsgi-server
-WSGI_VERSION := v240812
+WSGI_VERSION := v240812-2
 
 WEB_REPO := spdata/chatgpt-web-server
 WEB_VERSION := v240812
