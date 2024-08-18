@@ -451,8 +451,8 @@ def conversation(request):
                     yield sse_pack('message', {'content': event_text})
 
             # test adding embedded html
-            event_text = '\n\n[Link](https://google.com)'
-            yield sse_pack('message', {'content': event_text})
+            # event_text = '\n\n[Link](https://google.com)'
+            # yield sse_pack('message', {'content': event_text})
 
             bot_message_type = Message.plain_message_type
             ai_message_token = num_tokens_from_text(completion_text, model['name'])

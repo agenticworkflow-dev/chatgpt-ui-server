@@ -1,7 +1,7 @@
-WSGI_REPO := spdata/chatgpt-wsgi-server
-WSGI_VERSION := v240812-2
+WSGI_REPO := agenticworkflow/chatgpt-wsgi-server
+WSGI_VERSION := v240812
 
-WEB_REPO := spdata/chatgpt-web-server
+WEB_REPO := agenticworkflow/chatgpt-web-server
 WEB_VERSION := v240812
 
 build: build-wsgi build-web
