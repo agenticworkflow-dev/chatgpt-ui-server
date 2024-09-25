@@ -26,6 +26,7 @@ from rest_framework.decorators import api_view, authentication_classes, permissi
 from .serializers import ConversationSerializer, MessageSerializer, PromptSerializer, EmbeddingDocumentSerializer, SettingSerializer
 from utils.search_prompt import compile_prompt
 from utils.duckduckgo_search import web_search, SearchRequest
+from utils.sample_rag import prepare_rag_messages, SYS_PROMPT
 from .tools import TOOL_LIST
 from .llm import get_embedding_document, unpick_faiss, langchain_doc_chat
 from .llm import setup_openai_env
@@ -339,7 +340,7 @@ def conversation(request):
     request_max_response_tokens = request.data.get('max_tokens')
     system_content = request.data.get('system_content')
     if not system_content:
-        system_content = "You are a helpful assistant."
+        system_content = SYS_PROMPT
     temperature = request.data.get('temperature', 0.7)
     top_p = request.data.get('top_p', 1)
     frequency_penalty = request.data.get('frequency_penalty', 0)
@@ -383,6 +384,13 @@ def conversation(request):
 
     def stream_content():
         client = AzureOpenAI()
+        messages['messages'] = prepare_rag_messages(
+            messages['messages'],
+            '/app/datasets/db',
+            'sg_health',
+            top_k=5
+        )
+
         try:
             if messages['renew']:
                 openai_response = client.chat.completions.create(

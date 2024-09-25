@@ -1,8 +1,8 @@
 WSGI_REPO := agenticworkflow/chatgpt-wsgi-server
-WSGI_VERSION := v240812
+WSGI_VERSION := v240924
 
 WEB_REPO := agenticworkflow/chatgpt-web-server
-WEB_VERSION := v240812
+WEB_VERSION := v240924
 
 build: build-wsgi build-web
 
